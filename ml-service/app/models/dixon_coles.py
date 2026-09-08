@@ -121,6 +121,10 @@ class DixonColes:
         grid_x, grid_y = np.meshgrid(np.arange(max_g + 1), np.arange(max_g + 1), indexing="ij")
         x = grid_x.ravel()
         y = grid_y.ravel()
+        # Quirk intencional y load-bearing: x es entero, así que np.full_like(x, lam)
+        # trunca las lambdas a int dentro de tau. Cambiarlo altera todas las
+        # predicciones (ver test_score_matrix_usa_lambdas_truncadas_en_tau); el
+        # port TypeScript del Worker lo replica con Math.trunc.
         tau = self._tau(self.rho, np.full_like(x, lam_h), np.full_like(x, lam_a), x, y)
         probs = (poisson.pmf(x, lam_h) * poisson.pmf(y, lam_a) * tau).reshape(max_g + 1, max_g + 1)
         total = probs.sum()

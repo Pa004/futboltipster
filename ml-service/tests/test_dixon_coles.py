@@ -124,6 +124,42 @@ def test_small_sample_predice_con_poquitos_partidos():
     assert "Barcelona SC" in model.teams and "Emelec" in model.teams
 
 
+def test_score_matrix_usa_lambdas_truncadas_en_tau():
+    """Bloqueo del quirk de full_like: score_matrix trunca las lambdas a int
+    dentro de tau (x es entero). Si alguien lo "corrige" a floats, este test
+    falla a propósito: cambiarlo altera todas las predicciones."""
+    from scipy.stats import poisson
+
+    from app.models.dixon_coles import MAX_GOALS
+
+    model = DixonColes()
+    model.teams = ["Alfa", "Beta"]
+    model.idx = {"Alfa": 0, "Beta": 1}
+    model.attack = np.array([0.1, -0.1])
+    model.defense = np.array([0.05, -0.05])
+    model.mu = 0.2
+    model.gamma = 0.15
+    model.rho = -0.05
+    lam_h = model._lam_home("Alfa", "Beta")
+    lam_a = model._lam_away("Alfa", "Beta")
+    assert lam_h > 1 and lam_a > 1  # el truncado difiere del flotante
+
+    def manual(th, ta):
+        n = MAX_GOALS + 1
+        xs, ys = np.meshgrid(np.arange(n), np.arange(n), indexing="ij")
+        t = np.ones((n, n))
+        t[(xs == 0) & (ys == 0)] = 1 - th * ta * model.rho
+        t[(xs == 0) & (ys == 1)] = 1 + th * model.rho
+        t[(xs == 1) & (ys == 0)] = 1 + ta * model.rho
+        t[(xs == 1) & (ys == 1)] = 1 - model.rho
+        probs = poisson.pmf(xs, lam_h) * poisson.pmf(ys, lam_a) * t
+        return probs / probs.sum()
+
+    mat = model.score_matrix("Alfa", "Beta")
+    np.testing.assert_allclose(mat, manual(int(lam_h), int(lam_a)), rtol=1e-12, atol=1e-12)
+    assert not np.allclose(manual(lam_h, lam_a), mat, rtol=1e-12, atol=1e-12)
+
+
 def test_score_matrix_predict_es_la_completa_recortada():
     """predict expone la submatriz 6x6 del heatmap; la matriz completa se
     conserva en score_matrix (los mercados de matriz necesitan la cola)."""
