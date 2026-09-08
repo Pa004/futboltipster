@@ -6,6 +6,7 @@ import cron from "node-cron";
 import { CORS_ORIGINS, IS_PROD, ML_URL, PORT, SYNC_CRON, TRUST_PROXY } from "./config.js";
 import { db } from "./db.js";
 import { api } from "./routes/api.js";
+import { pushCloudFixtures } from "./services/cloudRelay.js";
 import { runSync } from "./services/predict.js";
 
 const app = express();
@@ -73,6 +74,8 @@ async function tick() {
   try {
     const { processed, predicted, checked } = await runSync();
     console.log(`[sync] processed=${processed} predicted=${predicted} checked=${checked}`);
+    // Relay EC1 a cloud (best-effort; no bloquea ni rompe el sync local).
+    await pushCloudFixtures();
   } catch (err) {
     console.error("[sync]", (err as Error).message);
   }

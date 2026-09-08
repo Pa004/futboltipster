@@ -14,6 +14,7 @@ __pycache__/
 ml-service/data/
 ml-service/artifacts/
 server/data/
+worker/data/
 *.npz
 
 # Entorno
@@ -28,3 +29,6 @@ verify.png
 .DS_Store
 Thumbs.db
 .playwright-mcp/
+
+# wrangler (estado local del CLI)
+.wrangler/

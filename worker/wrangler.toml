@@ -1,0 +1,22 @@
+# FutbolTipster en Cloudflare (plan Workers Free). Fase 1: esqueleto paritario
+# sin inferencia; la predicción lazy llega en Fase 2.
+name = "futboltipster-worker"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+# 06:00 America/Guayaquil = 11:00 UTC (Guayaquil no tiene DST). Consume 1 de 3 triggers free.
+[triggers]
+crons = ["0 11 * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "futboltipster"
+# Se rellena al crear la D1: wrangler d1 create futboltipster
+# OJO: el binding debe seguir siendo "DB" (lo usa src/index.ts y routes).
+database_id = "7658c130-0974-4b84-bb2c-1f0016a448e8"
+migrations_dir = "migrations"
+
+[vars]
+TZ = "America/Guayaquil"
+# Origen del front en Pages (fail-closed: vacío = se niega todo origen cruzado).
+CORS_ORIGINS = "https://futboltipster.pages.dev"

@@ -22,6 +22,10 @@ export const CORS_ORIGINS = (process.env.CORS_ORIGINS ?? "")
 
 export const REFRESH_TOKEN = process.env.REFRESH_TOKEN ?? "";
 
+// Relay EC1 al Worker (POST /api/ingest). Vacío = relay desactivado.
+export const CLOUD_SYNC_URL = process.env.CLOUD_SYNC_URL ?? "";
+export const CLOUD_SYNC_TOKEN = process.env.CLOUD_SYNC_TOKEN ?? "";
+
 export const IS_PROD = process.env.NODE_ENV === "production";
 
 // El deploy asume un proxy TLS delante; solo se confía en X-Forwarded-For si

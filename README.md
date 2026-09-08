@@ -178,6 +178,58 @@ Models are validated walk-forward on out-of-sample seasons (2023–2025, n≈5.4
 - **Band-level recalibration** (deferred): only if the project is monetized.
 - **Player-level markets** (deferred): needs a scorer-per-match data source.
 
+## Deploy (Cloudflare, free tier)
+
+`worker/` is a Cloudflare port of `server/` plus the ml-service inference, designed for the Workers Free plan ($0, no card required):
+
+| Local | Cloud |
+|-------|-------|
+| Express (`server/`) | Hono Worker (`worker/src`) |
+| `node:sqlite` (`server/data/futbol.db`) | D1 (`futboltipster` database) |
+| `node-cron` (`SYNC_CRON`) | Cron Trigger `0 11 * * *` UTC (= 06:00 America/Guayaquil, no DST) |
+| FastAPI ml-service (`ML_URL`) | In-process TypeScript inference (`worker/src/inference`) |
+| ESPN fixtures (`server/src/providers/espn.ts`) | football-data.org for Europe + local relay for EC1 (see below) |
+
+TypeScript inference is verified by parity: `ml-service/scripts/generate_golden.py` dumps vectors from the real Python models into `worker/tests/golden/`, and `parity.test.ts` asserts delta < 1e-9.
+
+### Fixture providers (cloud)
+
+ESPN returns 403 to Cloudflare egress IPs, so the cloud sync is hybrid:
+
+- **Europe** — football-data.org v4, free plan (10 req/min, no monthly cap, email-only signup). `GET /competitions/{PL,PD,BL1,SA,FL1}/matches?dateFrom=&dateTo=`, no season param needed. Status mapping: `TIMED/SCHEDULED`→pre, `IN_PLAY/PAUSED`→in, `FINISHED/AWARDED`→post, postponed/cancelled skipped. `shortName` matches the training names, `tla` feeds the crests, `crest` the logos. Costs ~6 requests/day.
+- **EC1** — no free cloud provider covers Liga Pro. The local server (residential IP, ESPN works) pushes EC1 fixtures to `POST /api/ingest` after each sync (`server/src/services/cloudRelay.ts`, best-effort, EC1-only to avoid duplicating Europe under other ids). Needs `CLOUD_SYNC_URL` + `CLOUD_SYNC_TOKEN` locally and the `CLOUD_TOKEN` secret in cloud.
+| In-memory rate limit | D1-backed rate limit |
+
+TypeScript inference is verified by parity: `ml-service/scripts/generate_golden.py` dumps vectors from the real Python models into `worker/tests/golden/`, and `parity.test.ts` asserts delta < 1e-9.
+
+### Steps
+
+```bash
+# 1. Export artifacts (regenerates gitignored worker/data/*.json)
+cd ml-service && python scripts/export_to_json.py
+
+# 2. Create the D1 database and paste its id into worker/wrangler.toml
+cd ../worker && wrangler d1 create futboltipster
+wrangler d1 migrations apply futboltipster --remote
+
+# 3. Secrets and deploy
+wrangler secret put REFRESH_TOKEN
+wrangler deploy
+
+# 4. Pages: connect the repo, build web/ with
+# VITE_API_URL=https://<worker>.workers.dev/api
+```
+
+### Free-tier constraints (hard-enforced since Sep 2026)
+
+- **10ms CPU per invocation**: the cron only upserts fixtures; predictions complete lazily (max 2 per request) and converge via the 60s auto-refresh. Partial 200s, never 503 for CPU.
+- **D1**: 5M rows read / 100K written per day — one SELECT + ≤2 writes per request, `Cache-Control: max-age=60`.
+- **Worker size** 3MB gzip (current bundle ~40KB).
+
+### Rollback
+
+Point `VITE_API_URL` back to the previous API. The local stack (Express + SQLite + FastAPI) is untouched by this deploy.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
