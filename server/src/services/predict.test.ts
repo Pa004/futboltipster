@@ -6,6 +6,7 @@ vi.mock("../providers/espn.js", () => ({
 }));
 vi.mock("../teams.js", () => ({
   resolveTeam: vi.fn(),
+  modelFor: (league: string) => (league === "EC1" ? "EC1" : "global"),
 }));
 
 import { fetchLeagueFixtures } from "../providers/espn.js";
@@ -226,6 +227,30 @@ describe("refreshFixtures", () => {
       prediction: string;
     };
     expect(JSON.parse(row.prediction).pick).toBe("H");
+  });
+
+  it("envía el namespace del modelo (global|EC1) a /predict, no el código de liga", async () => {
+    espnMock.mockImplementation(async (espnLeague) =>
+      espnLeague === "eng.1" ? [fixture("epl-9")] : espnLeague === "ecu.1" ? [fixture("ecu-9")] : [],
+    );
+    teamsMock.mockResolvedValue("Man City");
+
+    const leagues: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: { body?: unknown }) => {
+        leagues.push((JSON.parse(String(init?.body)) as { league: unknown }).league);
+        return new Response(
+          JSON.stringify({ pick: "H", confidence: { probability: 0.6 }, markets: { ft: {} } }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    const result = await predict.refreshFixtures();
+    expect(result.predicted).toBe(2);
+    // /predict valida league ∈ {global, EC1}: un código como "E0" devuelve 422.
+    expect(leagues.sort()).toEqual(["EC1", "global"]);
   });
 
   it("persiste los escudos de ESPN en el fixture", async () => {

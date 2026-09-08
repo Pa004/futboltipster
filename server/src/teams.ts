@@ -8,8 +8,9 @@ const inflight = new Map<string, Promise<string[]>>();
 const TEAMS_TTL = 60 * 60 * 1000;
 
 // El ml-service tiene dos espacios: "global" (5 ligas europeas) y "EC1".
-// Todo código que no sea EC1 resuelve contra el modelo global.
-function modelFor(league: string): string {
+// Todo código que no sea EC1 resuelve contra el modelo global. También se usa
+// para POST /predict, cuyo validador solo acepta esos dos namespaces.
+export function modelFor(league: string): string {
   return league === "EC1" ? "EC1" : "global";
 }
 

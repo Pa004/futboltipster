@@ -2,7 +2,7 @@ import { LEAGUES, ML_URL } from "../config.js";
 import { db } from "../db.js";
 import { safeJson } from "../lib/json.js";
 import { fetchLeagueFixtures } from "../providers/espn.js";
-import { resolveTeam } from "../teams.js";
+import { modelFor, resolveTeam } from "../teams.js";
 
 function hasMarkets(prediction: string | null | undefined): boolean {
   const parsed = safeJson<{ markets?: unknown }>(prediction ?? "");
@@ -102,9 +102,10 @@ export async function refreshFixtures(force = false): Promise<{ processed: numbe
       );
       processed++;
 
-      // force = modelo reentrenado: re-predice aunque la predicción ya tenga markets
+      // force = modelo reentrenado: re-predice aunque la predicción ya tenga markets.
+      // /predict solo acepta namespaces de modelo (global|EC1), no códigos de liga.
       if (fx.status === "pre" && league.model && (force || !hasMarkets(existing?.prediction))) {
-        tasks.push({ id: fx.id, home: fx.home, away: fx.away, league: code });
+        tasks.push({ id: fx.id, home: fx.home, away: fx.away, league: modelFor(code) });
       }
     }
   }
