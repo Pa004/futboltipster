@@ -1,0 +1,88 @@
+# Red de seguridad del relay EC1: si los fixtures de Liga Pro en cloud superan
+# 48h sin actualizarse (PC apagado, token inválido, cambio de esquema ESPN),
+# abre un issue con label "relay" (solo si no hay uno abierto). No mueve datos
+# ni toca ESPN: solo lee el Worker y la API de GitHub. 0 secrets (GITHUB_TOKEN).
+name: relay-watchdog
+on:
+  schedule:
+    # Tras el cron del Worker (11:00 UTC): detecta el día siguiente si falló.
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+permissions:
+  issues: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Revisar frescura EC1
+        env:
+          WORKER_URL: https://futboltipster-worker.pablodo004.workers.dev
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'EOF'
+          import json
+          import os
+          import sys
+          import urllib.request
+          from datetime import datetime, timezone
+
+          MAX_AGE_HOURS = 48
+          worker = os.environ["WORKER_URL"]
+          repo = os.environ["REPO"]
+          headers = {
+              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+              "Accept": "application/vnd.github+json",
+              "User-Agent": "futboltipster-watchdog/0.1",
+          }
+
+          def api(path, data=None):
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}{path}",
+                  data=json.dumps(data).encode() if data is not None else None,
+                  headers={**headers, "Content-Type": "application/json"} if data is not None else headers,
+                  method="POST" if data is not None else "GET",
+              )
+              with urllib.request.urlopen(req, timeout=30) as res:
+                  return json.load(res)
+
+          # UA explícita: el edge de Cloudflare desafía UAs no-browser (403).
+          # Se mide el heartbeat del relay (lastRelayAt), no fechas de partidos:
+          # la ventana de fixtures siempre mira +14 días y parecería fresca.
+          sreq = urllib.request.Request(
+              f"{worker}/api/stats",
+              headers={"User-Agent": "futboltipster-watchdog/0.1"},
+          )
+          with urllib.request.urlopen(sreq, timeout=30) as res:
+              last_relay = json.load(res).get("lastRelayAt")
+          now = datetime.now(timezone.utc)
+          if last_relay:
+              age_h = (now - datetime.fromisoformat(last_relay.replace("Z", "+00:00"))).total_seconds() / 3600
+          else:
+              age_h = float("inf")
+          print(f"lastRelayAt: {last_relay} ({age_h:.1f}h)")
+
+          if age_h <= MAX_AGE_HOURS:
+              print("Fresco: sin acción.")
+              sys.exit(0)
+
+          open_issues = api("/issues?labels=relay&state=open")
+          if open_issues:
+              print(f"Ya hay issue abierto (#{open_issues[0]['number']}): sin duplicar.")
+              sys.exit(0)
+          issue = api(
+              "/issues",
+              {
+                  "title": "Relay EC1 desactualizado",
+                  "labels": ["relay"],
+                  "body": (
+                      f"Sin relay hace {age_h:.0f}h (límite {MAX_AGE_HOURS}h). "
+                      f"Último: {last_relay}.\n\n"
+                      "Posibles causas: PC apagado varios días, `CLOUD_SYNC_TOKEN` "
+                      "inválido, o cambio de esquema ESPN. Revisar el log local "
+                      "`server-relay-*.log` y forzar el relay."
+                  ),
+              },
+          )
+          print(f"Issue creado: #{issue['number']}")
+          EOF

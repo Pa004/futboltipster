@@ -110,9 +110,11 @@ describe("GET /api/stats", () => {
       totalTracked: number;
       overallAccuracy: number | null;
       bands: { band: string; level: string; count: number; accuracy: number | null }[];
+      lastRelayAt: string | null;
     };
     expect(body.totalTracked).toBe(0);
     expect(body.overallAccuracy).toBeNull();
+    expect(body.lastRelayAt).toBeNull();
     expect(body.bands).toHaveLength(4);
     expect(body.bands[0]).toMatchObject({ band: "Seguro", level: "seguro", count: 0, accuracy: null });
   });
@@ -269,6 +271,7 @@ describe("POST /api/ingest", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ received: 2, upserted: 1 });
     expect(stub.fixtures.get("ecu-1")).toMatchObject({ league: "EC1", home: "Barcelona SC", skip_reason: null });
+    expect(stub.meta.get("last_relay_at")).not.toBeNull();
   });
 });
 

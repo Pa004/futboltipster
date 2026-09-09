@@ -58,6 +58,22 @@ describe("pushCloudFixtures", () => {
     expect(payload.fixtures[0]).toMatchObject({ league: "EC1", home: "Barcelona SC" });
   });
 
+  it("envía heartbeat aunque no haya filas (off-season)", async () => {
+    let payload: { fixtures: unknown[] } = { fixtures: [] };
+    let called = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_u: string, init?: { body?: string }) => {
+        called = true;
+        payload = JSON.parse(String(init?.body)) as typeof payload;
+        return new Response(JSON.stringify({ received: 0, upserted: 0 }), { status: 200 });
+      }),
+    );
+    await relay.pushCloudFixtures("https://cloud.test", "tok");
+    expect(called).toBe(true);
+    expect(payload.fixtures).toEqual([]);
+  });
+
   it("no lanza si cloud falla", async () => {
     vi.stubGlobal(
       "fetch",

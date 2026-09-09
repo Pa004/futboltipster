@@ -28,7 +28,8 @@ export async function pushCloudFixtures(url = CLOUD_SYNC_URL, token = CLOUD_SYNC
       home_score: number | null;
       away_score: number | null;
     }[];
-    if (rows.length === 0) return;
+    // Sin early return: el POST vacío es el heartbeat de off-season (el Worker
+    // sella last_relay_at en cada ingest válido y el watchdog mide con eso).
     const res = await fetch(`${url}/api/ingest`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-cloud-token": token },

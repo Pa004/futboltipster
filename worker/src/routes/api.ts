@@ -89,6 +89,7 @@ api.get("/stats", async (c) => {
     totalTracked: rows.length,
     overallAccuracy: rows.length > 0 ? hits / rows.length : null,
     bands,
+    lastRelayAt: await db.getMeta("last_relay_at"),
   });
 });
 
@@ -147,6 +148,9 @@ api.post("/ingest", async (c) => {
   if (!Array.isArray(fixtures) || fixtures.length > MAX_INGEST_FIXTURES) {
     return c.json({ error: "fixtures inválidos" }, 400);
   }
+  // Heartbeat del relay (aunque venga vacío en off-season): el watchdog mide
+  // frescura con esto, no con fechas de partidos (la ventana siempre mira +14d).
+  await db.setMeta("last_relay_at", new Date().toISOString());
   let upserted = 0;
   for (const raw of fixtures as IngestFixture[]) {
     const id = asString(raw.id);
