@@ -23,7 +23,11 @@ function isPending(row: FixtureRow): boolean {
   return row.status === "pre" && row.skip_reason === null && !hasMarkets(row.prediction);
 }
 
+// Cacheable 60s (ritmo del auto-refresh del web): alivia la cuota diaria de D1.
+const CACHE_SHORT = "public, max-age=60";
+
 api.get("/leagues", (c) => {
+  c.header("Cache-Control", CACHE_SHORT);
   return c.json(
     Object.entries(LEAGUES).map(([code, l]) => ({
       code,
@@ -45,6 +49,7 @@ api.get("/fixtures", async (c) => {
     await predictPending(db, artifacts, pending);
     rows = await db.listFixtures(league, localToday(timeZone(c.env)));
   }
+  c.header("Cache-Control", CACHE_SHORT);
   return c.json(
     rows.map((r) => ({
       id: r.id,
@@ -79,6 +84,7 @@ api.get("/stats", async (c) => {
       accuracy: inBand.length > 0 ? inBand.reduce((sum, r) => sum + r.hit, 0) / inBand.length : null,
     };
   });
+  c.header("Cache-Control", CACHE_SHORT);
   return c.json({
     totalTracked: rows.length,
     overallAccuracy: rows.length > 0 ? hits / rows.length : null,

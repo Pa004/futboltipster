@@ -2,6 +2,8 @@
 
 Statistical football predictions (1X2 and derived markets) powered by Dixon-Coles and Negative-Binomial models, presented with confidence bands. **Informative, not betting advice.**
 
+**Live demo:** https://futboltipster.pages.dev — API: https://futboltipster-worker.pablodo004.workers.dev/health
+
 ![FutbolTipster — match list](docs/screenshots/app.png)
 
 ## What it is
@@ -67,23 +69,42 @@ ml-service/              # Python / FastAPI — statistical models
       dixon_coles.py     # Dixon-Coles for FT and HT scores
       count_model.py     # Negative-Binomial for count markets (recent form, k=5)
       markets.py         # ~20 derived markets
-  scripts/               # download_data, download_espn_ecuador, train, validate, backtest
-  tests/                 # pytest (37 tests)
+  scripts/               # download_data, download_espn_ecuador, train, validate, backtest,
+                       # export_to_json (Worker artifacts), generate_golden (TS parity vectors)
+  tests/                 # pytest (38 tests)
   requirements.lock      # pinned Python dependencies
 
 server/                  # Node / Express + SQLite — orchestration
   src/
     index.ts             # bootstrap, cron sync, health-check of ml-service
-    config.ts            # env: PORT, ML_URL, SYNC_CRON, DB_PATH, REFRESH_TOKEN, CORS
+    config.ts            # env: PORT, ML_URL, SYNC_CRON, DB_PATH, REFRESH_TOKEN, CORS, CLOUD_SYNC_*
     db.ts                # node:sqlite — fixtures, picks, stats, meta
     teams.ts             # resolves ESPN display names → model team names (fuzzy ≥ 0.8)
     dates.ts             # local dates (TZ) for the fixture window and filter
     providers/espn.ts    # ESPN scoreboard client
-    routes/api.ts        # /api/leagues, /api/fixtures, /api/stats, /api/refresh
+    routes/api.ts        # /api/leagues, /api/fixtures, /api/stats, /api/refresh, /api/ingest
     services/predict.ts  # runSync, re-prediction by trained_at, backfill
+    services/cloudRelay.ts  # pushes EC1 fixtures to the cloud Worker (best-effort)
     data/teamOverrides.ts   # ESPN → model aliases (single source)
     lib/json.ts          # safe JSON response helpers
   package.json
+
+worker/                  # Cloudflare Worker + D1 — cloud port (free tier)
+  src/
+    index.ts             # fetch + scheduled handlers, security headers, fail-closed CORS
+    routes/api.ts        # same /api contracts as the server (+ Cache-Control: max-age=60)
+    db.ts                # D1 wrapper (same schema as server) + D1-backed rate limit
+    predict.ts           # lazy prediction (max 2 per request) + checkResults
+    footballData.ts      # football-data.org fixtures client (Europe)
+    teams.ts · dates.ts · bands.ts · config.ts  # pure logic mirrored from server/
+    inference/           # TypeScript ports: dixonColes, countModel, markets,
+                         # artifacts (JSON), buildPrediction
+  data/*.json            # gitignored; regenerate with ml-service/scripts/export_to_json.py
+  migrations/0001_init.sql  # D1 schema
+  tests/                 # vitest (40 tests: routes, predict, parity vs golden vectors)
+  wrangler.toml          # D1 binding, 06:00 GYE cron, vars (secrets via wrangler secret put)
+  package.json           # test:ci runs the subset that needs no artifacts (CI)
+
 
 web/                     # React 19 / Vite / Tailwind v4 — frontend
   src/
@@ -135,19 +156,22 @@ web/                     # React 19 / Vite / Tailwind v4 — frontend
 
 ```bash
 # ml-service (Python)
-cd ml-service && python -m ruff check app tests scripts && python -m ruff format --check . && python -m pytest tests -q   # 37 tests
+cd ml-service && python -m ruff check app tests scripts && python -m ruff format --check . && python -m pytest tests -q   # 38 tests
 
 # server (Node)
-cd server && npm run lint && npm test && npm run typecheck                                                            # 23 tests
+cd server && npm run lint && npm test && npm run typecheck                                                            # 27 tests
 
 # web (React)
 cd web && npm run lint && npm test && npm run typecheck                                                               # 28 tests
 
-# e2e (requires the three services running)
+# worker (Cloudflare; needs worker/data/*.json — see below)
+cd worker && npm run lint && npm test && npm run typecheck                                                             # 40 tests
+
+# e2e (requires the three local services running)
 cd web && npm run test:e2e && npm run test:e2e:responsive                                                              # 7 + 51 checks
 ```
 
-GitHub Actions (`.github/workflows/ci.yml`) runs lint, typecheck, tests and `pip-audit` for all three services on every push.
+GitHub Actions (`.github/workflows/ci.yml`) runs lint, typecheck, tests and `pip-audit`/`npm audit` for all four services on every push. The worker job runs the subset that needs no artifacts (`test:ci`); parity/predict/routes need the real JSON and run locally.
 
 ## Getting started
 
@@ -167,7 +191,13 @@ cd web
 npm install && npm run dev   # http://localhost:5173
 ```
 
-Environment variables are documented in `.env.example`; API endpoints and the data/training pipeline are documented in the source of each service (`server/`, `ml-service/`, `web/`).
+Worker tests need the artifacts JSON first (gitignored, like the `.npz`):
+
+```bash
+cd ml-service && python scripts/export_to_json.py   # regenerates worker/data/*.json
+```
+
+Environment variables are documented in `.env.example`; API endpoints and the data/training pipeline are documented in the source of each service (`server/`, `ml-service/`, `web/`, `worker/`).
 
 ## Validation & honesty
 
@@ -189,6 +219,7 @@ Models are validated walk-forward on out-of-sample seasons (2023–2025, n≈5.4
 | `node-cron` (`SYNC_CRON`) | Cron Trigger `0 11 * * *` UTC (= 06:00 America/Guayaquil, no DST) |
 | FastAPI ml-service (`ML_URL`) | In-process TypeScript inference (`worker/src/inference`) |
 | ESPN fixtures (`server/src/providers/espn.ts`) | football-data.org for Europe + local relay for EC1 (see below) |
+| In-memory rate limit | D1-backed rate limit |
 
 TypeScript inference is verified by parity: `ml-service/scripts/generate_golden.py` dumps vectors from the real Python models into `worker/tests/golden/`, and `parity.test.ts` asserts delta < 1e-9.
 
@@ -198,9 +229,6 @@ ESPN returns 403 to Cloudflare egress IPs, so the cloud sync is hybrid:
 
 - **Europe** — football-data.org v4, free plan (10 req/min, no monthly cap, email-only signup). `GET /competitions/{PL,PD,BL1,SA,FL1}/matches?dateFrom=&dateTo=`, no season param needed. Status mapping: `TIMED/SCHEDULED`→pre, `IN_PLAY/PAUSED`→in, `FINISHED/AWARDED`→post, postponed/cancelled skipped. `shortName` matches the training names, `tla` feeds the crests, `crest` the logos. Costs ~6 requests/day.
 - **EC1** — no free cloud provider covers Liga Pro. The local server (residential IP, ESPN works) pushes EC1 fixtures to `POST /api/ingest` after each sync (`server/src/services/cloudRelay.ts`, best-effort, EC1-only to avoid duplicating Europe under other ids). Needs `CLOUD_SYNC_URL` + `CLOUD_SYNC_TOKEN` locally and the `CLOUD_TOKEN` secret in cloud.
-| In-memory rate limit | D1-backed rate limit |
-
-TypeScript inference is verified by parity: `ml-service/scripts/generate_golden.py` dumps vectors from the real Python models into `worker/tests/golden/`, and `parity.test.ts` asserts delta < 1e-9.
 
 ### Steps
 
@@ -214,16 +242,19 @@ wrangler d1 migrations apply futboltipster --remote
 
 # 3. Secrets and deploy
 wrangler secret put REFRESH_TOKEN
+wrangler secret put FOOTBALL_DATA_KEY
+wrangler secret put CLOUD_TOKEN
 wrangler deploy
 
-# 4. Pages: connect the repo, build web/ with
+# 4. Pages: connect the repo (branch master), root web, build npm run build,
+# output dist, NODE_VERSION=22, with
 # VITE_API_URL=https://<worker>.workers.dev/api
 ```
 
 ### Free-tier constraints (hard-enforced since Sep 2026)
 
-- **10ms CPU per invocation**: the cron only upserts fixtures; predictions complete lazily (max 2 per request) and converge via the 60s auto-refresh. Partial 200s, never 503 for CPU.
-- **D1**: 5M rows read / 100K written per day — one SELECT + ≤2 writes per request, `Cache-Control: max-age=60`.
+- **10ms CPU per invocation**: the cron runs the full sync (football-data.org fetch is ~6 requests, no monthly cap) plus lazy catch-up; `GET /fixtures` predictions complete lazily (max 2 per request) and converge via the 60s auto-refresh. Partial 200s, never 503 for CPU.
+- **D1**: 5M rows read / 100K written per day — 1–2 SELECTs + ≤2 writes per request, `Cache-Control: max-age=60` on GETs.
 - **Worker size** 3MB gzip (current bundle ~40KB).
 
 ### Rollback

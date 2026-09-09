@@ -6,6 +6,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:ci": "vitest run tests/footballData.test.ts",
     "lint": "eslint src tests --max-warnings 0",
     "format": "prettier --write src tests eslint.config.js",
     "bundle": "esbuild src/index.ts --bundle --minify --format=esm --platform=neutral --outfile=dist/bundle.js",

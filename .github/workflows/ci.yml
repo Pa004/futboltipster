@@ -50,6 +50,29 @@ jobs:
         continue-on-error: true
         run: npm audit --audit-level=high
 
+  worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci
+      # data/*.json es gitignored: seed mínimo solo para typecheck/lint.
+      # parity/predict/routes requieren los JSON reales (export_to_json.py) y corren en local.
+      - run: node scripts/seed-ci-data.mjs
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:ci
+      - name: Auditoría de dependencias (npm audit)
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
   web:
     runs-on: ubuntu-latest
     defaults:

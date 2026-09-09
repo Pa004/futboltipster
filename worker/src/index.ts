@@ -37,7 +37,11 @@ export function createApp(): Hono<{ Bindings: AppEnv }> {
       return c.body(null, 204, headers);
     }
     await next();
-    if (allowed && origin) c.header("Access-Control-Allow-Origin", origin);
+    if (allowed && origin) {
+      // Vary evita que la caché compartida sirva el ACAO de un origen a otro.
+      c.header("Access-Control-Allow-Origin", origin);
+      c.header("Vary", "Origin");
+    }
   });
 
   app.get("/health", async (c) => {

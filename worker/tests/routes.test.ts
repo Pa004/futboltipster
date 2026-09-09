@@ -134,6 +134,16 @@ describe("GET /api/stats", () => {
   });
 });
 
+  it("fija Cache-Control de 60s en los GET", async () => {
+    const app = createApp();
+    const env = makeEnv(new StubD1());
+    for (const path of ["/api/leagues", "/api/fixtures", "/api/stats"]) {
+      const res = await app.request(path, {}, env);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Cache-Control")).toBe("public, max-age=60");
+    }
+  });
+
 describe("POST /api/refresh", () => {
   beforeEach(() => mockEmptyEspn());
   afterEach(() => vi.unstubAllGlobals());
@@ -281,6 +291,7 @@ describe("cabeceras y CORS", () => {
       makeEnv(new StubD1(), { CORS_ORIGINS: "https://app.pages.dev" }),
     );
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://app.pages.dev");
+    expect(res.headers.get("Vary")).toBe("Origin");
   });
 });
 
