@@ -228,7 +228,7 @@ TypeScript inference is verified by parity: `ml-service/scripts/generate_golden.
 ESPN returns 403 to Cloudflare egress IPs, so the cloud sync is hybrid:
 
 - **Europe** — football-data.org v4, free plan (10 req/min, no monthly cap, email-only signup). `GET /competitions/{PL,PD,BL1,SA,FL1}/matches?dateFrom=&dateTo=`, no season param needed. Status mapping: `TIMED/SCHEDULED`→pre, `IN_PLAY/PAUSED`→in, `FINISHED/AWARDED`→post, postponed/cancelled skipped. `shortName` matches the training names, `tla` feeds the crests, `crest` the logos. Costs ~6 requests/day.
-- **EC1** — no free cloud provider covers Liga Pro. The local server (residential IP, ESPN works) pushes EC1 fixtures to `POST /api/ingest` after each sync (`server/src/services/cloudRelay.ts`, best-effort, EC1-only to avoid duplicating Europe under other ids). Needs `CLOUD_SYNC_URL` + `CLOUD_SYNC_TOKEN` locally and the `CLOUD_TOKEN` secret in cloud.
+- **EC1** — no free cloud provider covers Liga Pro. The local server (residential IP, ESPN works) pushes EC1 fixtures to `POST /api/ingest` after each sync (`server/src/services/cloudRelay.ts`, best-effort, EC1-only to avoid duplicating Europe under other ids). Needs `CLOUD_SYNC_URL` + `CLOUD_SYNC_TOKEN` locally and the `CLOUD_TOKEN` secret in cloud. Daily automation: `server/scripts/relay-ec1.ps1` (starts the stack if down and waits for the first tick) via a scheduled task — daily 06:05 + at log on, with wake timers; full command in `server/scripts/README.md`.
 
 ### Steps
 
